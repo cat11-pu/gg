@@ -6,14 +6,16 @@ import (
 	"fmt"
 	"image/color"
 	"math/rand"
+	"os"
 	"testing"
 )
 
 var save bool
 
-func init() {
+func TestMain(m *testing.M) {
 	flag.BoolVar(&save, "save", false, "save PNG output for each test case")
 	flag.Parse()
+	os.Exit(m.Run())
 }
 
 func hash(dc *Context) string {
@@ -268,7 +270,7 @@ func TestLinearGradient(t *testing.T) {
 	dc.DrawRectangle(0, 0, 100, 100)
 	dc.Fill()
 	saveImage(dc, "TestLinearGradient")
-	checkHash(t, dc, "75eb9385c1219b1d5bb6f4c961802c7a")
+	checkHash(t, dc, "603bd09824f7958636c476ddf73c02b9")
 }
 
 func TestRadialGradient(t *testing.T) {
@@ -281,7 +283,7 @@ func TestRadialGradient(t *testing.T) {
 	dc.DrawRectangle(0, 0, 100, 100)
 	dc.Fill()
 	saveImage(dc, "TestRadialGradient")
-	checkHash(t, dc, "f170f39c3f35c29de11e00428532489d")
+	checkHash(t, dc, "d565e46c77246bbae057538122bbf027")
 }
 
 func TestDashes(t *testing.T) {

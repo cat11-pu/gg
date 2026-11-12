@@ -65,13 +65,18 @@ func NewSurfacePattern(im image.Image, op RepeatOp) Pattern {
 }
 
 type patternPainter struct {
-	im   *image.RGBA
-	mask *image.Alpha
-	p    Pattern
+	im       *image.RGBA
+	mask     *image.Alpha
+	p        Pattern
+	ditherer *fsDitherer
 }
 
 // Paint satisfies the Painter interface.
 func (r *patternPainter) Paint(ss []raster.Span, done bool) {
+	if _, ok := r.p.(ditherablePattern); ok {
+		r.paintDithered(ss)
+		return
+	}
 	b := r.im.Bounds()
 	for _, s := range ss {
 		if s.Y < b.Min.Y {
@@ -119,5 +124,5 @@ func (r *patternPainter) Paint(ss []raster.Span, done bool) {
 }
 
 func newPatternPainter(im *image.RGBA, mask *image.Alpha, p Pattern) *patternPainter {
-	return &patternPainter{im, mask, p}
+	return &patternPainter{im: im, mask: mask, p: p}
 }
