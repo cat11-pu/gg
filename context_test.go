@@ -6,14 +6,17 @@ import (
 	"fmt"
 	"image/color"
 	"math/rand"
+	"os"
 	"testing"
 )
 
 var save bool
 
-func init() {
+func TestMain(m *testing.M) {
 	flag.BoolVar(&save, "save", false, "save PNG output for each test case")
+	testing.Init()
 	flag.Parse()
+	os.Exit(m.Run())
 }
 
 func hash(dc *Context) string {

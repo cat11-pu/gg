@@ -75,6 +75,8 @@ type Context struct {
 	fillRule      FillRule
 	fontFace      font.Face
 	fontHeight    float64
+	fontSize      float64
+	textRenderer  *TextRenderer
 	matrix        Matrix
 	stack         []*Context
 }
@@ -692,6 +694,7 @@ func (dc *Context) DrawImageAnchored(im image.Image, x, y int, ax, ay float64) {
 func (dc *Context) SetFontFace(fontFace font.Face) {
 	dc.fontFace = fontFace
 	dc.fontHeight = float64(fontFace.Metrics().Height) / 64
+	dc.textRenderer = nil
 }
 
 func (dc *Context) LoadFontFace(path string, points float64) error {
@@ -699,8 +702,85 @@ func (dc *Context) LoadFontFace(path string, points float64) error {
 	if err == nil {
 		dc.fontFace = face
 		dc.fontHeight = points * 72 / 96
+		dc.fontSize = points
+		dc.textRenderer = nil
 	}
 	return err
+}
+
+// LoadTextFontFace loads a TrueType font at the given point size with the
+// enhanced text pipeline: LRU glyph caching with bounded memory, sub-pixel
+// positioning, kern table support and supersampled anti-aliasing below 12px.
+func (dc *Context) LoadTextFontFace(path string, points float64) error {
+	tf, err := LoadTextFace(path, points)
+	if err != nil {
+		return err
+	}
+	dc.setTextFace(tf)
+	return nil
+}
+
+// LoadTextFontSet installs a multi-face text pipeline (Latin face plus CJK
+// fallback, for example) at the given point size.
+func (dc *Context) LoadTextFontSet(points float64, paths ...string) error {
+	r, err := LoadTextFontSet(points, defaultCacheEntries, defaultCacheBytes, paths...)
+	if err != nil {
+		return err
+	}
+	dc.SetTextRenderer(r)
+	return nil
+}
+
+// SetTextRenderer installs a TextRenderer (one or more faces with fallback
+// and their glyph caches) as the active text pipeline.
+func (dc *Context) SetTextRenderer(r *TextRenderer) {
+	dc.textRenderer = r
+	if len(r.faces) > 0 {
+		tf := r.faces[0]
+		dc.fontFace = tf.face
+		dc.fontHeight = float64(tf.face.Metrics().Height) / 64
+		dc.fontSize = tf.size
+	}
+}
+
+// TextRenderer returns the active TextRenderer or nil when the legacy
+// font.Face pipeline is in use.
+func (dc *Context) TextRenderer() *TextRenderer {
+	return dc.textRenderer
+}
+
+// SetGlyphCacheLimit reconfigures the per-face glyph caches of the active
+// TextRenderer. Both the number of entries and the total mask memory are
+// bounded; least recently used glyphs are evicted past the limits.
+func (dc *Context) SetGlyphCacheLimit(maxEntries, maxBytes int) {
+	if dc.textRenderer == nil {
+		return
+	}
+	for _, c := range dc.textRenderer.Caches() {
+		c.mu.Lock()
+		c.maxEntries = maxEntries
+		c.maxBytes = maxBytes
+		for (maxEntries > 0 && c.lru.Len() > maxEntries) ||
+			(maxBytes > 0 && c.bytes > maxBytes) {
+			c.evictOldest()
+		}
+		c.mu.Unlock()
+	}
+}
+
+// GlyphCacheStats returns the summed stats of all per-face glyph caches.
+func (dc *Context) GlyphCacheStats() GlyphCacheStats {
+	if dc.textRenderer == nil {
+		return GlyphCacheStats{}
+	}
+	return dc.textRenderer.AggregateStats()
+}
+
+func (dc *Context) setTextFace(tf *textFace) {
+	dc.fontFace = tf.face
+	dc.fontHeight = float64(tf.face.Metrics().Height) / 64
+	dc.fontSize = tf.size
+	dc.textRenderer = NewTextRenderer(defaultCacheEntries, defaultCacheBytes, tf)
 }
 
 func (dc *Context) FontHeight() float64 {
@@ -708,6 +788,10 @@ func (dc *Context) FontHeight() float64 {
 }
 
 func (dc *Context) drawString(im *image.RGBA, s string, x, y float64) {
+	if dc.textRenderer != nil {
+		dc.textRenderer.drawString(im, image.NewUniform(dc.color), s, x, y, dc.matrix)
+		return
+	}
 	d := &font.Drawer{
 		Dst:  im,
 		Src:  image.NewUniform(dc.color),
@@ -817,6 +901,9 @@ func (dc *Context) MeasureMultilineString(s string, lineSpacing float64) (width,
 // MeasureString returns the rendered width and height of the specified text
 // given the current font face.
 func (dc *Context) MeasureString(s string) (w, h float64) {
+	if dc.textRenderer != nil {
+		return dc.textRenderer.MeasureString(s), dc.fontHeight
+	}
 	d := &font.Drawer{
 		Face: dc.fontFace,
 	}

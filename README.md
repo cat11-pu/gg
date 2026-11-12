@@ -221,3 +221,51 @@ func main() {
 ```
 
 ![Ellipses](http://i.imgur.com/J9CBZef.png)
+
+## Advanced Text Rendering
+
+The classic `LoadFontFace` / `DrawString` path is unchanged. An enhanced
+pipeline is available for applications that render a lot of text:
+
+- **Glyph raster cache with bounded LRU memory.** Each glyph is rasterized
+  once and reused; both the entry count and the total mask memory are capped,
+  so long running processes cannot grow without bound.
+- **Sub-pixel positioning.** The pen keeps fractional positions (1/4 pixel
+  horizontally) instead of snapping every glyph to an integer pixel, which
+  removes layout jitter at small sizes.
+- **Kerning.** Pair adjustments are read from the font's `kern` table via
+  `font.Face.Kern` and applied during layout.
+- **Small-size anti-aliasing.** Fonts below 12px are rasterized at 2x and
+  downsampled, keeping small text legible.
+- **Font sets / fallback.** A list of faces is supported; the first face that
+  contains a rune is used, so a Latin face can be combined with a CJK
+  fallback for mixed Chinese/English text.
+
+```go
+dc := gg.NewContext(1024, 256)
+
+// Latin face (has a kern table) plus a CJK fallback face.
+err := dc.LoadTextFontSet(16,
+    "fonts/DejaVuSans.ttf",
+    "fonts/SimHei.ttf")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Bound the per-face glyph cache: at most 256 glyphs / 1 MB of masks.
+dc.SetGlyphCacheLimit(256, 1<<20)
+
+dc.DrawString("Mixed 中英 Text AVATAR", 10, 40)
+
+st := dc.GlyphCacheStats()
+fmt.Printf("hit rate %.1f%%, %d glyphs, %d bytes cached\n",
+    100*st.HitRate(), st.Entries, st.Bytes)
+```
+
+The `examples/text_demo` program renders the same paragraph at 12, 16 and
+24px and writes `text_demo.png`, `text_demo_stats.csv` (cache hit rate) and
+`text_demo_memory.csv` (the bounded memory curve):
+
+```
+go run ./examples/text_demo
+```
