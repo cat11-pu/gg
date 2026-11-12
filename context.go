@@ -57,6 +57,7 @@ type Context struct {
 	width         int
 	height        int
 	rasterizer    *raster.Rasterizer
+	coverage      coverageRasterizer
 	im            *image.RGBA
 	mask          *image.Alpha
 	color         color.Color
@@ -429,11 +430,10 @@ func (dc *Context) fill(painter raster.Painter) {
 		copy(path, dc.fillPath)
 		path.Add1(dc.start.Fixed())
 	}
-	r := dc.rasterizer
-	r.UseNonZeroWinding = dc.fillRule == FillRuleWinding
-	r.Clear()
-	r.AddPath(path)
-	r.Rasterize(painter)
+	r := &dc.coverage
+	r.reset(dc.height)
+	r.addPath(path)
+	painter.Paint(r.spans(dc.width, dc.fillRule == FillRuleEvenOdd), true)
 }
 
 // StrokePreserve strokes the current path with the current color, line width,
