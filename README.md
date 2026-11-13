@@ -121,9 +121,31 @@ SetHexColor(x string)
 SetLineWidth(lineWidth float64)
 SetLineCap(lineCap LineCap)
 SetLineJoin(lineJoin LineJoin)
+SetLineJoinMiter()
+SetMiterLimit(limit float64)
+SetLineWidthFunc(fn WidthFunc)
 SetDash(dashes ...float64)
 SetDashOffset(offset float64)
 SetFillRule(fillRule FillRule)
+```
+
+Line joins support miter, round and bevel styles (`LineJoinMiter`,
+`LineJoinRound`, `LineJoinBevel`). A miter join whose miter-length-to-width
+ratio exceeds the miter limit (10 by default, matching SVG/Canvas) is
+automatically rendered as a bevel, so very acute corners never produce long
+spikes. End caps support butt, round and square (`LineCapButt`,
+`LineCapRound`, `LineCapSquare`).
+
+`SetLineWidthFunc` installs a `WidthFunc`, a function of parametric position
+`t` in `[0, 1]`, that varies the stroke width along each sub-path. Pass `nil`
+to return to the constant width from `SetLineWidth`. Variable-width strokes
+handle self-intersecting paths without stray spikes.
+
+```go
+// taper the stroke at both ends of a path
+dc.SetLineWidthFunc(func(t float64) float64 {
+    return 1 + 9 * math.Sin(math.Pi * t)
+})
 ```
 
 ## Gradients & Patterns

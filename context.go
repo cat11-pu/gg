@@ -31,6 +31,7 @@ type LineJoin int
 const (
 	LineJoinRound LineJoin = iota
 	LineJoinBevel
+	LineJoinMiter
 )
 
 type FillRule int
@@ -72,6 +73,8 @@ type Context struct {
 	lineWidth     float64
 	lineCap       LineCap
 	lineJoin      LineJoin
+	miterLimit    float64
+	widthFunc     WidthFunc
 	fillRule      FillRule
 	fontFace      font.Face
 	fontHeight    float64
@@ -105,6 +108,7 @@ func NewContextForRGBA(im *image.RGBA) *Context {
 		fillPattern:   defaultFillStyle,
 		strokePattern: defaultStrokeStyle,
 		lineWidth:     1,
+		miterLimit:    DefaultMiterLimit,
 		fillRule:      FillRuleWinding,
 		fontFace:      basicfont.Face7x13,
 		fontHeight:    13,
@@ -201,6 +205,26 @@ func (dc *Context) SetLineJoinRound() {
 
 func (dc *Context) SetLineJoinBevel() {
 	dc.lineJoin = LineJoinBevel
+}
+
+// SetLineJoinMiter sets the current line join style to miter.
+func (dc *Context) SetLineJoinMiter() {
+	dc.lineJoin = LineJoinMiter
+}
+
+// SetMiterLimit sets the maximum ratio of miter length to line width. When a
+// miter join would exceed this ratio (which happens at very acute angles), it
+// is automatically rendered as a bevel join. The default limit is 10.
+func (dc *Context) SetMiterLimit(limit float64) {
+	dc.miterLimit = limit
+}
+
+// SetLineWidthFunc installs a function that varies the stroke width along the
+// path. The function is evaluated at parametric position t in [0, 1], where 0
+// is the start of each sub-path and 1 is its end. Pass nil to return to a
+// constant width given by SetLineWidth.
+func (dc *Context) SetLineWidthFunc(fn WidthFunc) {
+	dc.widthFunc = fn
 }
 
 func (dc *Context) SetFillRule(fillRule FillRule) {
@@ -384,41 +408,24 @@ func (dc *Context) NewSubPath() {
 
 // Path Drawing
 
-func (dc *Context) capper() raster.Capper {
-	switch dc.lineCap {
-	case LineCapButt:
-		return raster.ButtCapper
-	case LineCapRound:
-		return raster.RoundCapper
-	case LineCapSquare:
-		return raster.SquareCapper
-	}
-	return nil
-}
-
-func (dc *Context) joiner() raster.Joiner {
-	switch dc.lineJoin {
-	case LineJoinBevel:
-		return raster.BevelJoiner
-	case LineJoinRound:
-		return raster.RoundJoiner
-	}
-	return nil
-}
-
 func (dc *Context) stroke(painter raster.Painter) {
 	path := dc.strokePath
+	var paths [][]Point
 	if len(dc.dashes) > 0 {
-		path = dashed(path, dc.dashes, dc.dashOffset)
+		paths = dashPath(flattenPath(path), dc.dashes, dc.dashOffset)
 	} else {
-		// TODO: this is a temporary workaround to remove tiny segments
-		// that result in rendering issues
-		path = rasterPath(flattenPath(path))
+		paths = flattenPath(path)
 	}
 	r := dc.rasterizer
 	r.UseNonZeroWinding = true
 	r.Clear()
-	r.AddStroke(path, fix(dc.lineWidth), dc.capper(), dc.joiner())
+	strokeOutline(r, paths, strokeOptions{
+		width:      dc.lineWidth,
+		widthFunc:  dc.widthFunc,
+		cap:        dc.lineCap,
+		join:       dc.lineJoin,
+		miterLimit: dc.miterLimit,
+	})
 	r.Rasterize(painter)
 }
 
